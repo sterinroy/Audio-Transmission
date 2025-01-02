@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audio Transmission with RTCP Monitoring</title>
+  <link rel="stylesheet" href="src/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Audio Transmission with RTCP Monitoring</h1>
+    <div class="controls">
+      <button id="startRecording">Start Recording</button>
+      <button id="stopRecording" disabled>Stop Recording</button>
+    </div>
+    <div class="monitoring">
+      <h2>Monitoring Metrics</h2>
+      <p>Jitter: <span id="jitter">0 ms</span></p>
+      <p>Packet Loss: <span id="packetLoss">0%</span></p>
+      <p>Audio Quality: <span id="audioQuality">Pending</span></p>
+    </div>
+    <div class="graphs">
+      <canvas id="jitterGraph"></canvas>
+      <canvas id="packetLossGraph"></canvas>
+    </div>
+    <div class="audio-section">
+      <h2>Audio Files</h2>
+      <p>Original Audio:</p>
+      <audio id="originalAudio" controls></audio>
+      <p>Received Audio:</p>
+      <audio id="receivedAudio" controls></audio>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="src/script.js"></script>
+</body>
+</html>

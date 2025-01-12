@@ -6,28 +6,63 @@ let packetLossData = [];
 let jitterChart;
 let packetLossChart;
 let recordingInterval;
+let audioQualityData = [];
+let peerConnection;
 
-// Modify the simulateNetworkTransmission function
+// Constants for metrics
+const UPDATE_INTERVAL = 2000; // 2 seconds
 let accumulatedJitter = 0;
 let accumulatedPacketLoss = 0;
 let sampleCount = 0;
-const UPDATE_INTERVAL = 1000; // 2 seconds
 let lastUpdateTime = Date.now();
 
-// Add audio quality metrics
-let audioQualityData = [];
+async function setupRTPConnection() {
+    peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    // Get real RTP stats
+    setInterval(async () => {
+        const stats = await peerConnection.getStats();
+        stats.forEach(report => {
+            if (report.type === 'inbound-rtp') {
+                const jitter = report.jitter * 1000; // Convert to ms
+                const packetsLost = report.packetsLost;
+                const packetsTotal = report.packetsReceived + report.packetsLost;
+                const lossRate = (packetsLost / packetsTotal) * 100;
+                
+                updateMetrics(jitter, lossRate);
+            }
+        });
+    }, UPDATE_INTERVAL);
+
+    return peerConnection;
+}
 
 function evaluateAudioQuality(originalChunk, receivedChunk) {
-    // Simple audio quality metric based on packet integrity
+    // Audio quality metric based on packet integrity
     const qualityScore = receivedChunk ? 
         (receivedChunk.size / originalChunk.size) * 100 : 0;
     
     audioQualityData.push(qualityScore);
     
+    // Calculate MOS
+    const mos = calculateMOS(
+        jitterData[jitterData.length - 1] || 0,
+        packetLossData[packetLossData.length - 1] || 0
+    );
+    
     // Update audio quality display
     const averageQuality = audioQualityData.reduce((a, b) => a + b, 0) / audioQualityData.length;
     document.getElementById('audioQuality').innerText = 
-        `${averageQuality.toFixed(1)}%`;
+        `${averageQuality.toFixed(1)}% (MOS: ${mos.toFixed(2)})`;
+}
+
+function calculateMOS(jitter, packetLoss) {
+    // Mean Opinion Score calculation (simplified)
+    const R = 93.2 - (jitter * 0.24) - (packetLoss * 2.5);
+    const MOS = 1 + (0.035 * R) + (R * (R - 60) * (100 - R) * 7e-6);
+    return Math.min(Math.max(1, MOS), 5);
 }
 
 function simulateNetworkTransmission(chunk) {
@@ -80,7 +115,7 @@ function updateMetrics() {
 function updateCharts() {
     if (jitterChart && packetLossChart) {
         // Limit the number of points shown on the graph
-        const maxDataPoints = 30; // Show last 1 minute of data (30 * 2 seconds)
+        const maxDataPoints = 30; // Show last 1 minute of data
         
         if (jitterData.length > maxDataPoints) {
             jitterData.shift();
@@ -92,18 +127,18 @@ function updateCharts() {
         // Update jitter chart
         jitterChart.data.labels = Array.from({ length: jitterData.length }, (_, i) => i + 1);
         jitterChart.data.datasets[0].data = jitterData;
-        jitterChart.update('none'); // Use 'none' mode for better performance
+        jitterChart.update('none');
 
         // Update packet loss chart
         packetLossChart.data.labels = Array.from({ length: packetLossData.length }, (_, i) => i + 1);
         packetLossChart.data.datasets[0].data = packetLossData;
-        packetLossChart.update('none'); // Use 'none' mode for better performance
+        packetLossChart.update('none');
 
         // Update metrics display
         document.getElementById('jitter').innerText = 
-            jitterData[jitterData.length - 1].toFixed(2) + ' ms';
+            `${jitterData[jitterData.length - 1].toFixed(2)} ms`;
         document.getElementById('packetLoss').innerText = 
-            packetLossData[packetLossData.length - 1].toFixed(2) + '%';
+            `${packetLossData[packetLossData.length - 1].toFixed(2)}%`;
     }
 }
 
@@ -117,15 +152,15 @@ document.getElementById('startRecording').addEventListener('click', async () => 
         receivedChunks = [];
         jitterData = [];
         packetLossData = [];
+        audioQualityData = [];
         
-        // Handle original recording
         mediaRecorder.ondataavailable = (event) => {
             audioChunks.push(event.data);
-            // Simulate network transmission for each chunk
             simulateNetworkTransmission(event.data);
         };
 
         mediaRecorder.start(100); // Record in 100ms chunks
+        await setupRTPConnection();
         initializeGraphs();
 
         document.getElementById('startRecording').disabled = true;
@@ -140,16 +175,16 @@ document.getElementById('stopRecording').addEventListener('click', () => {
         mediaRecorder.stop();
     }
 
-    mediaRecorder.onstop = () => {
-        // Create original audio blob
-        const originalBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const originalUrl = URL.createObjectURL(originalBlob);
-        document.getElementById('originalAudio').src = originalUrl;
+    if (peerConnection) {
+        peerConnection.close();
+    }
 
-        // Create received audio blob
+    mediaRecorder.onstop = () => {
+        const originalBlob = new Blob(audioChunks, { type: 'audio/webm' });
         const receivedBlob = new Blob(receivedChunks, { type: 'audio/webm' });
-        const receivedUrl = URL.createObjectURL(receivedBlob);
-        document.getElementById('receivedAudio').src = receivedUrl;
+        
+        document.getElementById('originalAudio').src = URL.createObjectURL(originalBlob);
+        document.getElementById('receivedAudio').src = URL.createObjectURL(receivedBlob);
     };
 
     document.getElementById('startRecording').disabled = false;
@@ -157,7 +192,6 @@ document.getElementById('stopRecording').addEventListener('click', () => {
 });
 
 function initializeGraphs() {
-    // Clear existing charts
     if (jitterChart) jitterChart.destroy();
     if (packetLossChart) packetLossChart.destroy();
 
@@ -179,7 +213,8 @@ function initializeGraphs() {
                     beginAtZero: true,
                     max: 50
                 }
-            }
+            },
+            animation: false
         }
     });
 
@@ -201,37 +236,8 @@ function initializeGraphs() {
                     beginAtZero: true,
                     max: 5
                 }
-            }
+            },
+            animation: false
         }
     });
-}
-
-// This would be a better implementation using WebRTC's RTP
-async function setupRTPConnection() {
-    const peerConnection = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-
-    // Get real RTP stats
-    setInterval(async () => {
-        const stats = await peerConnection.getStats();
-        stats.forEach(report => {
-            if (report.type === 'inbound-rtp') {
-                const jitter = report.jitter * 1000; // Convert to ms
-                const packetsLost = report.packetsLost;
-                const packetsTotal = report.packetsReceived + report.packetsLost;
-                const lossRate = (packetsLost / packetsTotal) * 100;
-                
-                // Update metrics with real data
-                updateMetrics(jitter, lossRate);
-            }
-        });
-    }, UPDATE_INTERVAL);
-}
-
-function calculateMOS(jitter, packetLoss) {
-    // Mean Opinion Score calculation (simplified)
-    const R = 93.2 - (jitter * 0.24) - (packetLoss * 2.5);
-    const MOS = 1 + (0.035 * R) + (R * (R - 60) * (100 - R) * 7e-6);
-    return Math.min(Math.max(1, MOS), 5);
 }

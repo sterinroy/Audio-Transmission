@@ -76,15 +76,27 @@ function simulateNetworkTransmission(chunk) {
     accumulatedPacketLoss += packetLoss;
     sampleCount++;
     
+    // Create message to send to server
+    const message = JSON.stringify({
+        jitter: jitter,
+        packetLoss: packetLoss,
+        timestamp: Date.now(),
+        chunkSize: chunk.size
+    });
+
+    // Send data to UDP server using fetch
+    fetch('http://localhost:5004', {
+        method: 'POST',
+        body: message
+    }).catch(err => console.error('Error sending to server:', err));
+    
     // Simulate packet loss and evaluate quality
     if (Math.random() * 100 > packetLoss) {
-        // Delayed delivery of the packet
         setTimeout(() => {
             receivedChunks.push(chunk);
             evaluateAudioQuality(chunk, chunk);
         }, jitter);
     } else {
-        // Packet lost
         evaluateAudioQuality(chunk, null);
     }
     
